@@ -218,6 +218,27 @@ num_cores <- min(8, available_cores - 1)  # Use 8 cores maximum
 - Checks for required columns and data types
 - Handles missing values and invalid entries
 - Validates file existence before processing
-- **August 2025**: Updated version with enhanced plotting and selective gene labeling
-- Improved parallel processing and error handling
-- Added comprehensive statistical reporting
+
+### Statistical Validity
+- Excludes genes with insufficient data
+- Handles edge cases in Fisher's test
+- Provides confidence intervals for effect sizes
+
+## Citation
+
+If you use this analysis pipeline in your research, please cite:
+- Fisher, R.A. (1922). On the interpretation of χ² from contingency tables, and the calculation of P. *Journal of the Royal Statistical Society*, 85(1), 87-94.
+- Benjamini, Y., & Hochberg, Y. (1995). Controlling the false discovery rate: a practical and powerful approach to multiple testing. *Journal of the Royal Statistical Society*, 57(1), 289-300.
+
+## License
+
+This script is provided for research purposes. Please ensure compliance with individual package licenses.
+
+## Support
+
+For questions or issues:
+1. Check the console output for detailed error messages
+2. Verify input data format and file paths
+3. Ensure all required packages are installed
+4. Review the troubleshooting section above
+
