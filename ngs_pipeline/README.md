@@ -161,3 +161,21 @@ Update the following paths in the script:
 - Verify reference file paths and formats
 - Confirm adequate disk space for processing
 - Monitor system resources during execution
+
+## Citation
+
+If you use this pipeline in your research, please cite the appropriate tools and resources:
+- GATK
+- BWA
+- Picard Tools
+- ANNOVAR
+- FastQC/MultiQC
+- And other tools used in the pipeline
+
+## License
+
+This pipeline is provided as-is for research purposes. Please ensure compliance with individual tool licenses.
+
+## Support
+
+For questions or issues with this pipeline, please check the documentation of individual tools or create an issue in this repository.
