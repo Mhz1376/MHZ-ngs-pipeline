@@ -240,9 +240,9 @@ If you use this pipeline in your research, please cite:
 
 ## License
 
-[Specify your license - e.g., MIT, GPL-3, etc.]
+This pipeline is provided as-is for research purposes. Please ensure compliance with individual tool licenses.
 
-## Contact
+## Support
 
-[Your contact information]
+For questions or issues with this pipeline, please check the documentation of individual tools or create an issue in this repository.
 
