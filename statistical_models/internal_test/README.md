@@ -1,223 +1,181 @@
-# Gene-Level Burden Analysis using Fisher's Exact Test
+# NGS Variant Calling Pipeline
 
-A comprehensive R script for performing gene-level burden analysis on variant data using Fisher's exact test with population frequency-based controls and advanced statistical corrections.
+A comprehensive Next-Generation Sequencing (NGS) pipeline for processing SRA data through quality control, alignment, variant calling, and annotation with gene panel filtering.
 
 ## Overview
 
-This script performs gene-level burden analysis to identify genes with significant enrichment of rare variants in case samples compared to population-based expected frequencies. It implements Fisher's exact test with multiple testing corrections and generates publication-ready visualizations.
+This pipeline processes SRA (Sequence Read Archive) files through a complete variant calling workflow, from raw sequencing data to filtered, annotated variants. It implements best practices for NGS data processing including GATK's recommended workflows for variant discovery.
 
-## Key Features
+## Pipeline Workflow
 
-- **Parallel processing**: Efficient multi-core data processing
-- **Robust data handling**: Safe CSV reading with automatic column detection
-- **Population-based controls**: Uses gnomAD and population frequency data for control estimates
-- **Statistical rigor**: Fisher's exact test with Bonferroni and FDR corrections
-- **Publication-ready plots**: Journal-style volcano plots, bar charts, and distribution plots
-- **Comprehensive logging**: Detailed progress tracking and error handling
+### 1. Quality Control (QC)
+- **fasterq-dump**: Convert SRA files to FASTQ format
+- **fastp**: Adapter trimming and quality filtering
+- **BBDuk**: Additional adapter removal and quality trimming
+- **IlluQC**: Quality control assessment
+- **FastQC**: Generate quality reports
+- **MultiQC**: Aggregate QC results
 
-## Analysis Workflow
+### 2. Alignment
+- **BWA MEM**: Align reads to reference genome (human_g1k_v37)
+- **Samtools**: SAM/BAM file processing
 
-### 1. Data Loading and Preprocessing
-- Reads variant data from CSV files for multiple samples
-- Handles missing columns and standardizes gene names
-- Processes allele frequencies (gnomAD_AF, PopFreqMax)
-- Filters out invalid entries and standardizes data format
+### 3. Post-Alignment Processing
+- **Picard SortSam**: Sort BAM files by coordinate
+- **Coverage Analysis**: Calculate depth of coverage statistics
+- **Picard MarkDuplicates**: Remove PCR duplicates
+- **Picard AddOrReplaceReadGroups**: Add read group information
+- **Picard BuildBamIndex**: Index BAM files
 
-### 2. Sample-Level Burden Calculation
-- Identifies genes with at least one qualifying variant per sample
-- Calculates binary burden status (presence/absence) per gene per sample
-- Aggregates burden counts across all case samples
+### 4. Base Quality Score Recalibration (BQSR)
+- **GATK BaseRecalibrator**: Generate recalibration table
+- **GATK ApplyBQSR**: Apply base quality recalibration
 
-### 3. Population Burden Estimation
-- Uses exact product method for population burden estimation
-- Incorporates variant allele frequencies from gnomAD and population databases
-- Calculates expected burden frequencies using Hardy-Weinberg principles
-- Accounts for multiple variants per gene using probability theory
+### 5. Variant Calling
+- **GATK HaplotypeCaller**: Call SNPs and indels
+- **GATK IndexFeatureFile**: Index VCF files
 
-### 4. Statistical Testing
-- Performs Fisher's exact test for each gene
-- Compares observed case burden vs. expected population burden
-- Calculates odds ratios with confidence intervals
-- Handles edge cases and statistical exceptions
+### 6. Variant Quality Score Recalibration (VQSR)
+- **GATK VariantRecalibrator**: Build recalibration model for SNPs and indels
+- **GATK ApplyVQSR**: Apply quality score recalibration
 
-### 5. Multiple Testing Correction
-- Applies Bonferroni correction for family-wise error rate control
-- Implements Benjamini-Hochberg FDR correction
-- Identifies significant genes at different significance thresholds
-
-### 6. Visualization and Output
-- Generates volcano plots with selective gene labeling
-- Creates bar charts of top significant genes
-- Produces burden distribution histograms
-- Exports results in multiple formats
+### 7. Annotation and Filtering
+- **ANNOVAR**: Comprehensive variant annotation
+- **Custom filtering**: Gene panel-based filtering with quality thresholds
+- **PASS filtering**: Retain only variants that pass quality filters
 
 ## Prerequisites
 
-### Required R Packages
-```r
-# Core packages (automatically installed if missing)
-- parallel      # Multi-core processing
-- data.table    # Efficient data manipulation
-- dplyr         # Data wrangling
-- readr         # Fast CSV reading
-- ggplot2       # Advanced plotting
-- ggrepel       # Smart label positioning
-- scales        # Plot scaling utilities
-```
+### Required Software
+- **SRA Toolkit** (fasterq-dump)
+- **fastp** (version with adapter trimming support)
+- **BBTools** (BBDuk)
+- **IlluQC**
+- **FastQC**
+- **MultiQC**
+- **BWA** (Burrows-Wheeler Aligner)
+- **Samtools**
+- **Picard Tools**
+- **GATK** (Genome Analysis Toolkit)
+- **ANNOVAR**
+- **GNU Parallel**
 
-### Input Data Requirements
-
-#### File Structure
-```
-/path/to/results/directory/
-├── SRR_ID_1/
-│   └── ANNOTATION/
-│       └── Franklin_Results_Without_Benign_LikelyBenign_0.001.csv
-├── SRR_ID_2/
-│   └── ANNOTATION/
-│       └── Franklin_Results_Without_Benign_LikelyBenign_0.001.csv
-└── ...
-```
-
-#### Required CSV Columns
-- **Gene Name**: Gene symbol or identifier
-- **gnomAD_AF**: gnomAD allele frequency (numeric)
-- **PopFreqMax**: Maximum population frequency (numeric)
-- **Variant**: Unique variant identifier (auto-generated if missing)
-
-#### Sample List File
-- Text file with one SRR identifier per line
-- Located at `/path/to/srr_names.txt`
+### Required Reference Files
+- Human reference genome (human_g1k_v37.fasta)
+- GATK resource bundle files:
+  - dbsnp_138.b37.vcf.gz
+  - Mills_and_1000G_gold_standard.indels.b37.vcf.gz
+  - hapmap_3.3.b37.vcf.gz
+  - 1000G_omni2.5.b37.vcf.gz
+  - 1000G_phase1.snps.high_confidence.b37.vcf.gz
+- BBTools adapter sequences (adapters.fa)
+- ANNOVAR database files
+- Gene panel file (list of genes of interest)
 
 ## Installation and Setup
 
-1. **Install R** (version ≥ 4.0 recommended)
-
-2. **Clone repository and set up paths**:
-```r
-# Update these paths in the script:
-base_path <- "/path/to/results/directory"           # NGS results location
-srr_names_file <- "/path/to/srr_names.txt"          # Sample list file
-results_dir <- "/path/to/output/directory"          # Output location
-```
-
-3. **Prepare input data**:
-   - Ensure CSV files are properly formatted
-   - Create SRR names file with sample identifiers
-   - Verify directory structure matches expected format
+1. Install all required software packages
+2. Download and index reference genome and GATK resource files
+3. Set up ANNOVAR database
+4. Update directory paths in the script to match your system
+5. Prepare gene panel file with one gene symbol per line
+6. Create SRR accession list file
 
 ## Usage
 
-### Basic Execution
-```r
-# Run the complete analysis
-source("gene_burden_analysis.R")
+```bash
+# Make the script executable
+chmod +x ngs_pipeline.sh
+
+# Run the pipeline
+./ngs_pipeline.sh
 ```
 
-### Advanced Usage
-```r
-# Run individual components
-results <- main_burden_analysis()
-create_summary_plots(results)
-```
+The script reads SRR accession numbers from a file (`/path/to/SRR_Acc_List.txt`) and processes each sample in parallel.
 
-### Parallel Processing Control
-The script automatically detects available cores and uses up to 12 cores. To modify:
-```r
-num_cores <- min(8, available_cores - 1)  # Use 8 cores maximum
-```
+## Configuration
+
+### Directory Structure
+Update the following paths in the script:
+- `BASE_DIR`: Working directory for processing
+- `RESULTS_DIR`: Final output directory
+- `SRA_DATA_DIR`: Location of SRA files
+- Reference genome and resource file paths
+- ANNOVAR database path
+- Gene panel file path
+
+### Processing Parameters
+- **Threads**: Set to 12 for most tools (adjust based on available cores)
+- **Quality thresholds**: 
+  - fastp: mean quality ≥20, minimum length 36bp
+  - BBDuk: quality trimming at Q10
+  - IlluQC: length ≥70bp, quality ≥20
+- **Variant filtering**:
+  - Heterozygous variants: ref count ≥8, alt count ≥8, alt frequency ≥25%
+  - Homozygous variants: alt count ≥8
+  - Excludes Y chromosome variants and benign variants
+  - PASS filter: Only variants with "PASS" in FILTER column retained
 
 ## Output Files
 
-### Statistical Results
-- **Gene_Burden_Analysis_Results.csv**: Complete analysis results
-- **Significant_Genes_FDR_0.05.csv**: FDR-significant genes
-- **Significant_Genes_Raw_P_0.05.csv**: Nominally significant genes
+### Quality Control
+- FastQC reports (HTML and zip files)
+- MultiQC summary report
+- Coverage statistics (average_depth.txt)
 
-### Visualizations
-- **Gene_Burden_Volcano_Plot_annotated.png**: Volcano plot with selective labeling
-- **Top_Significant_Genes_Styled.png**: Bar chart of top genes
-- **Burden_Distribution_Styled.png**: Distribution histogram
+### Variant Files
+- Raw variants (var.vcf.gz)
+- Quality score recalibrated variants (recal_snp_recal_indel.vcf.gz)
+- Annotated variants (ANNOVAR output files)
+- Filtered variants:
+  - `matched_pgl.vcf`: Gene panel matched variants
+  - `AD_GT_matched_pgl.vcf`: Quality filtered variants
+  - `filtered_without_Y_and_benign_AD_GT_matched_pgl.vcf`: Clinical filtered variants
+  - `passed_filtered_without_Y_and_benign_AD_GT_matched_pgl.vcf`: Final filtered variants
 
-### Result Columns
-- **Gene**: Gene symbol
-- **Cases_Burden**: Number of cases with burden variants
-- **Controls_Burden**: Expected number from population
-- **P_Value**: Raw Fisher's exact test p-value
-- **P_Value_FDR**: FDR-corrected p-value
-- **P_Value_Bonferroni**: Bonferroni-corrected p-value
-- **Odds_Ratio**: Effect size estimate
-- **CI_Lower/CI_Upper**: 95% confidence intervals
+### Log Files
+- Process logs: `{SRR}_process.log`
+- Error logs: `{SRR}_process.err`
 
-## Statistical Methods
+## Pipeline Features
 
-### Fisher's Exact Test
-- Tests association between gene burden and case status
-- Uses exact probabilities for small sample sizes
-- Provides unbiased p-values and confidence intervals
-
-### Population Control Estimation
-- Calculates gene-level burden probability using variant frequencies
-- Uses product formula: P(no burden) = ∏(1 - 2×AF_i)
-- Accounts for multiple variants per gene
-- Applies Hardy-Weinberg equilibrium assumptions
-
-### Multiple Testing Correction
-- **Bonferroni**: Controls family-wise error rate (FWER)
-- **FDR**: Controls false discovery rate using Benjamini-Hochberg procedure
-- Recommended threshold: FDR < 0.05
-
-## Visualization Features
-
-### Volcano Plot
-- **X-axis**: log2(Odds Ratio)
-- **Y-axis**: -log10(FDR p-value)
-- **Point size**: Number of cases with burden
-- **Colors**: Significance status (FDR < 0.05)
-- **Labels**: Selected high-priority genes (HLA-DQA1, HLA-DRB1, HLA-DQB1, KMT2C, HLA-DRB5, PROM1)
-
-### Bar Chart
-- Shows top 25 most significant genes
-- Ranked by -log10(raw p-value)
-- Journal-style formatting with consistent theme
-
-### Distribution Plot
-- Histogram of burden counts across genes
-- Shows distribution of variant burden in the dataset
+- **Parallel processing**: Uses GNU Parallel for efficient sample processing
+- **Comprehensive QC**: Multiple quality control steps with detailed reporting
+- **Best practices**: Implements GATK best practices for variant calling
+- **Gene panel filtering**: Focuses analysis on clinically relevant genes
+- **Quality-based filtering**: Applies stringent quality thresholds
+- **Automated cleanup**: Removes intermediate files to save disk space
+- **Detailed logging**: Comprehensive logging for troubleshooting
 
 ## Performance Considerations
 
-### System Requirements
-- **RAM**: ≥8GB recommended for large datasets
-- **CPU**: Multi-core processor for parallel processing
-- **Storage**: Sufficient space for intermediate files and outputs
-
-### Optimization Tips
-- Use parallel processing for large sample sets
-- Filter input data to reduce memory usage
-- Monitor system resources during execution
+- **CPU**: Pipeline uses 12 threads by default (adjust based on available cores)
+- **Memory**: GATK steps may require substantial RAM (≥8GB recommended)
+- **Storage**: Significant disk space required for intermediate files
+- **Processing time**: Varies by sample size (typically several hours per sample)
 
 ## Troubleshooting
 
-### Common Issues
+- Check log files for detailed error messages
+- Ensure all required software is installed and in PATH
+- Verify reference file paths and formats
+- Confirm adequate disk space for processing
+- Monitor system resources during execution
 
-1. **Missing files**: Check file paths and directory structure
-2. **Column name mismatches**: Verify CSV column headers
-3. **Memory issues**: Reduce parallel cores or filter input data
-4. **No significant results**: Check input data quality and sample size
+## Citation
 
-### Error Handling
-- Automatic package installation for missing dependencies
-- Graceful handling of missing or corrupted files
-- Comprehensive error logging with detailed messages
-- Fallback options for failed statistical tests
+If you use this pipeline in your research, please cite the appropriate tools and resources:
+- GATK
+- BWA
+- Picard Tools
+- ANNOVAR
+- FastQC/MultiQC
+- And other tools used in the pipeline
 
-## Quality Control
+## License
 
-### Input Validation
-- Checks for required columns and data types
-- Handles missing values and invalid entries
-- Validates file existence before processing
-- **August 2025**: Updated version with enhanced plotting and selective gene labeling
-- Improved parallel processing and error handling
-- Added comprehensive statistical reporting
+This pipeline is provided as-is for research purposes. Please ensure compliance with individual tool licenses.
+
+## Support
+
+For questions or issues with this pipeline, please check the documentation of individual tools or create an issue in this repository.
