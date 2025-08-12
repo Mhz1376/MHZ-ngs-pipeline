@@ -232,13 +232,8 @@ If you use this analysis pipeline in your research, please cite:
 
 ## License
 
-This script is provided for research purposes. Please ensure compliance with individual package licenses.
+This pipeline is provided as-is for research purposes. Please ensure compliance with individual tool licenses.
 
 ## Support
 
-For questions or issues:
-1. Check the console output for detailed error messages
-2. Verify input data format and file paths
-3. Ensure all required packages are installed
-4. Review the troubleshooting section above
-
+For questions or issues with this pipeline, please check the documentation of individual tools or create an issue in this repository.
