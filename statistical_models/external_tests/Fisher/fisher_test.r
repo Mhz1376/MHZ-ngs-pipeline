@@ -1,10 +1,16 @@
 # Gene-Level Burden Analysis using Fisher's Exact Test
 # Updated plotting: unified journal-style theme + annotated volcano (all FDR < 0.05 labeled)
 # Author: Updated for user's pipeline (Aug 2025)
-
 rm(list = ls())
 
-required_packages <- c("parallel", "data.table", "dplyr", "readr", "ggplot2", "ggrepel", "scales")
+# -------------------------
+# Required packages
+# -------------------------
+required_packages <- c(
+  "parallel", "data.table", "dplyr", "readr",
+  "ggplot2", "ggrepel", "scales",
+  "showtext", "sysfonts"
+)
 for (pkg in required_packages) {
   if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
     install.packages(pkg, dependencies = TRUE)
@@ -12,7 +18,44 @@ for (pkg in required_packages) {
   }
 }
 
-# Setup parallel (robust)
+# ragg optional (better TIFF rendering)
+if (!requireNamespace("ragg", quietly = TRUE)) {
+  message("Note: 'ragg' not installed. To improve TIFF text rendering install.packages('ragg').")
+}
+
+# -------------------------
+# Font detection + registration
+# -------------------------
+candidate_paths <- c(
+  "C:/Windows/Fonts/arial.ttf",
+  "C:/Windows/Fonts/Arial.ttf",
+  "/Library/Fonts/Arial.ttf",
+  "/System/Library/Fonts/Supplemental/Arial.ttf",
+  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+  "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
+)
+
+font_path_found <- ""
+for (p in candidate_paths) {
+  if (file.exists(p)) { font_path_found <- p; break }
+}
+
+if (nzchar(font_path_found)) {
+  font_family <- "CustomSans"
+  sysfonts::font_add(family = font_family, regular = font_path_found)
+  message("Registered font '", font_family, "' from: ", font_path_found)
+} else {
+  font_family <- "sans"
+  message("No system TTF found in common locations — using family = 'sans'.")
+}
+
+# enable showtext and set DPI for rasterization
+showtext::showtext_auto(enable = TRUE)
+showtext::showtext_opts(dpi = 1200)
+
+# -------------------------
+# Parallel cluster setup (robust)
+# -------------------------
 available_cores <- parallel::detectCores(logical = FALSE)
 num_cores <- min(12, ifelse(is.na(available_cores), 1, max(1, available_cores - 1)))
 cat("Setting up parallel processing with", num_cores, "cores...\n")
@@ -20,11 +63,9 @@ cat("Setting up parallel processing with", num_cores, "cores...\n")
 cl <- NULL
 tryCatch({
   if (num_cores > 1) {
-    cl <- makeCluster(num_cores)
-    clusterEvalQ(cl, {
-      library(data.table)
-      library(dplyr)
-      library(readr)
+    cl <- parallel::makeCluster(num_cores)
+    parallel::clusterEvalQ(cl, {
+      library(data.table); library(dplyr); library(readr)
     })
     cat("Parallel cluster initialized successfully\n")
   } else {
@@ -35,12 +76,75 @@ tryCatch({
   cl <<- NULL
 })
 
-# Safe CSV reader (no classification filtering assumed; input pre-filtered)
+# -------------------------
+# Utilities: cm->in and save function (PDF/EPS + TIFF@1200)
+# -------------------------
+cm_to_in <- function(x) x / 2.54
+
+use_ragg <- requireNamespace("ragg", quietly = TRUE)
+
+save_highres <- function(plot_obj, filename_base,
+                         width_cm = 17.6, height_cm = 12.0,
+                         save_vector = TRUE, tiff_res = 1200, family = font_family) {
+  out_dir <- dirname(filename_base)
+  if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+  w_in <- cm_to_in(width_cm)
+  h_in <- cm_to_in(height_cm)
+
+  # Vector: PDF and EPS (cairo devices)
+  if (save_vector) {
+    tryCatch({
+      ggplot2::ggsave(paste0(filename_base, ".pdf"), plot = plot_obj,
+             device = cairo_pdf, width = w_in, height = h_in,
+             units = "in", family = family)
+      cat("Saved vector:", paste0(filename_base, ".pdf"), "\n")
+    }, error = function(e) {
+      warning("PDF save failed: ", e$message)
+    })
+    tryCatch({
+      ggplot2::ggsave(paste0(filename_base, ".eps"), plot = plot_obj,
+             device = cairo_ps, width = w_in, height = h_in,
+             units = "in", family = family)
+      cat("Saved vector:", paste0(filename_base, ".eps"), "\n")
+    }, error = function(e) {
+      warning("EPS save failed: ", e$message)
+    })
+  }
+
+  # Raster TIFF
+  out_tiff <- paste0(filename_base, ".tiff")
+  if (use_ragg) {
+    tryCatch({
+      ragg::agg_tiff(filename = out_tiff, width = w_in, height = h_in, units = "in", res = tiff_res, background = "white")
+      print(plot_obj)
+      grDevices::dev.off()
+      cat("Saved raster (ragg):", out_tiff, "(DPI =", tiff_res, ")\n")
+    }, error = function(e) {
+      warning("ragg TIFF failed: ", e$message)
+    })
+  } else {
+    tryCatch({
+      ggplot2::ggsave(out_tiff, plot = plot_obj,
+             device = "tiff", width = w_in, height = h_in,
+             units = "in", dpi = tiff_res, limitsize = FALSE,
+             compression = "lzw")
+      cat("Saved raster (ggsave):", out_tiff, "(DPI =", tiff_res, ")\n")
+    }, error = function(e) {
+      warning("TIFF save failed: ", e$message)
+    })
+  }
+
+  invisible(TRUE)
+}
+
+# -------------------------
+# Safe CSV reader
+# -------------------------
 safe_read_csv <- function(file_path) {
   tryCatch({
     cat("Reading:", basename(file_path), "\n")
-    df <- read_csv(file_path, show_col_types = FALSE,
-                   col_types = cols(.default = col_character()))
+    df <- readr::read_csv(file_path, show_col_types = FALSE,
+                         col_types = readr::cols(.default = readr::col_character()))
     if (!("Gene Name" %in% colnames(df))) {
       alt <- grep("gene", colnames(df), ignore.case = TRUE, value = TRUE)
       if (length(alt) >= 1) names(df)[which(colnames(df) == alt[1])] <- "Gene Name"
@@ -51,7 +155,7 @@ safe_read_csv <- function(file_path) {
     if (!("Gene Name" %in% colnames(df))) df$`Gene Name` <- NA
 
     df$`Gene Name` <- trimws(df$`Gene Name`)
-    df <- df[!is.na(df$`Gene Name`) & df$`Gene Name` != "", ]
+    df <- df[!is.na(df$`Gene Name`) & df$`Gene Name` != "", , drop = FALSE]
 
     na_like <- function(x) x %in% c(NA, "NA", "N/A", "n/a", "")
     df$gnomAD_AF[na_like(df$gnomAD_AF)] <- "0"
@@ -69,49 +173,48 @@ safe_read_csv <- function(file_path) {
   })
 }
 
-# Calculate sample-level gene burden (list of genes that have >=1 burden variant)
+# -------------------------
+# Sample burden, population burden, fisher test
+# -------------------------
 calculate_sample_burden <- function(sample_data, sample_name = "Unknown") {
   if (is.null(sample_data) || nrow(sample_data) == 0) {
-    return(data.frame(Gene = character(0), HasBurden = logical(0)))
+    return(data.frame(Gene = character(0), HasBurden = logical(0), stringsAsFactors = FALSE))
   }
   gene_burden <- sample_data %>%
-    distinct(`Gene Name`) %>%
-    mutate(HasBurden = TRUE) %>%
-    rename(Gene = `Gene Name`)
+    dplyr::distinct(`Gene Name`) %>%
+    dplyr::mutate(HasBurden = TRUE) %>%
+    dplyr::rename(Gene = `Gene Name`)
   cat("Sample", sample_name, "has burden variants in", nrow(gene_burden), "genes\n")
   return(gene_burden)
 }
 
-# Exact population burden using carrier probs and product formula
 estimate_population_burden <- function(all_variants_data, sample_size = 62) {
   cat("Estimating population burden (exact product method) for", length(unique(all_variants_data$`Gene Name`)), "genes...\n")
-
   all_variants_data <- all_variants_data %>%
-    mutate(variant_AF = pmax(gnomAD_AF, PopFreqMax, na.rm = TRUE)) %>%
-    mutate(variant_AF = pmin(pmax(variant_AF, 0), 1))
+    dplyr::mutate(variant_AF = pmax(gnomAD_AF, PopFreqMax, na.rm = TRUE)) %>%
+    dplyr::mutate(variant_AF = pmin(pmax(variant_AF, 0), 1))
 
   gene_pop_freq <- all_variants_data %>%
-    group_by(`Gene Name`) %>%
-    summarise(
+    dplyr::group_by(`Gene Name`) %>%
+    dplyr::summarise(
       variant_afs = list(variant_AF),
-      variant_count = n(),
+      variant_count = dplyr::n(),
       .groups = "drop"
     ) %>%
-    rowwise() %>%
-    mutate(
+    dplyr::rowwise() %>%
+    dplyr::mutate(
       carrier_probs = list(pmin(2 * unlist(variant_afs), 1)),
       log_non = sum(log1p(-unlist(carrier_probs))),
       individual_burden_freq = 1 - exp(log_non),
       expected_burden_count = sample_size * individual_burden_freq
     ) %>%
-    ungroup() %>%
-    select(Gene = `Gene Name`, variant_count, individual_burden_freq, expected_burden_count)
+    dplyr::ungroup() %>%
+    dplyr::select(Gene = `Gene Name`, variant_count, individual_burden_freq, expected_burden_count)
 
   cat("Population burden estimated for", nrow(gene_pop_freq), "genes\n")
   return(gene_pop_freq)
 }
 
-# Corrected Fisher test
 perform_gene_fisher_test <- function(gene_name, cases_burden, controls_burden,
                                      total_cases = 62, total_controls = 62) {
   cases_no_burden <- max(0, total_cases - cases_burden)
@@ -141,7 +244,7 @@ perform_gene_fisher_test <- function(gene_name, cases_burden, controls_burden,
   )
 
   res <- tryCatch({
-    fisher_result <- fisher.test(contingency_matrix)
+    fisher_result <- stats::fisher.test(contingency_matrix)
     data.frame(
       Gene = gene_name,
       Cases_Burden = cases_burden,
@@ -172,9 +275,9 @@ perform_gene_fisher_test <- function(gene_name, cases_burden, controls_burden,
   return(res)
 }
 
-# -----------------------
+# -------------------------
 # Main analysis pipeline
-# -----------------------
+# -------------------------
 main_burden_analysis <- function() {
   cat("=== Starting Gene-Level Burden Analysis ===\n")
 
@@ -199,7 +302,7 @@ main_burden_analysis <- function() {
 
   cat("\n=== Step 1: Loading sample data ===\n")
   if (!is.null(cl)) {
-    sample_data_list <- parLapply(cl, valid_paths, safe_read_csv)
+    sample_data_list <- parallel::parLapply(cl, valid_paths, safe_read_csv)
   } else {
     sample_data_list <- lapply(valid_paths, safe_read_csv)
   }
@@ -223,7 +326,7 @@ main_burden_analysis <- function() {
   cat("\n=== Step 3: Combining variant data ===\n")
   all_variants <- do.call(rbind, sample_data_list)
   cat("Combined data contains", nrow(all_variants), "total variant observations\n")
-  all_variants_unique <- all_variants %>% distinct(Variant, `Gene Name`, .keep_all = TRUE)
+  all_variants_unique <- all_variants %>% dplyr::distinct(Variant, `Gene Name`, .keep_all = TRUE)
   cat("Unique variants:", nrow(all_variants_unique), "\n")
 
   all_genes <- unique(all_variants_unique$`Gene Name`)
@@ -231,16 +334,15 @@ main_burden_analysis <- function() {
   cat("Total genes to analyze:", length(all_genes), "\n")
 
   cat("\n=== Step 5: Calculating gene-level burden counts ===\n")
-  library(data.table)
-  present_long <- rbindlist(lapply(names(sample_burdens), function(s) {
+  present_long <- data.table::rbindlist(lapply(names(sample_burdens), function(s) {
     sb <- sample_burdens[[s]]
     if (nrow(sb) == 0) return(NULL)
-    data.table(Gene = sb$Gene, Sample = s)
+    data.table::data.table(Gene = sb$Gene, Sample = s)
   }), use.names = TRUE, fill = TRUE)
   gene_burden_counts_dt <- present_long[, .(Cases_Burden = uniqueN(Sample)), by = Gene]
   gene_burden_counts <- data.frame(Gene = all_genes, stringsAsFactors = FALSE) %>%
-    left_join(as.data.frame(gene_burden_counts_dt), by = "Gene") %>%
-    mutate(Cases_Burden = ifelse(is.na(Cases_Burden), 0L, Cases_Burden))
+    dplyr::left_join(as.data.frame(gene_burden_counts_dt), by = "Gene") %>%
+    dplyr::mutate(Cases_Burden = ifelse(is.na(Cases_Burden), 0L, Cases_Burden))
   cat("Burden counts calculated for", nrow(gene_burden_counts), "genes\n")
 
   cat("\n=== Step 6: Estimating population burden ===\n")
@@ -248,8 +350,8 @@ main_burden_analysis <- function() {
 
   cat("\n=== Step 7: Merging case and control data ===\n")
   gene_analysis_data <- gene_burden_counts %>%
-    left_join(population_burden, by = "Gene") %>%
-    mutate(
+    dplyr::left_join(population_burden, by = "Gene") %>%
+    dplyr::mutate(
       expected_burden_count = ifelse(is.na(expected_burden_count),
                                      0.001 * length(sample_burdens),
                                      expected_burden_count),
@@ -274,13 +376,13 @@ main_burden_analysis <- function() {
   fisher_results <- do.call(rbind, fisher_results_list)
 
   cat("\n=== Step 9: Multiple testing correction ===\n")
-  valid_results <- fisher_results[!is.na(fisher_results$P_Value), ]
+  valid_results <- fisher_results[!is.na(fisher_results$P_Value), , drop = FALSE]
   if (nrow(valid_results) > 0) {
     valid_results$P_Value_Bonferroni <- p.adjust(valid_results$P_Value, method = "bonferroni")
     valid_results$P_Value_FDR <- p.adjust(valid_results$P_Value, method = "fdr")
     valid_results$Significant_Bonferroni <- valid_results$P_Value_Bonferroni < 0.05
     valid_results$Significant_FDR <- valid_results$P_Value_FDR < 0.05
-    valid_results <- valid_results[order(valid_results$P_Value), ]
+    valid_results <- valid_results[order(valid_results$P_Value), , drop = FALSE]
     cat("Multiple testing correction applied to", nrow(valid_results), "genes\n")
   } else {
     stop("No valid p-values were calculated. Please check your data.")
@@ -289,17 +391,17 @@ main_burden_analysis <- function() {
   cat("\n=== Step 10: Saving results ===\n")
   results_dir <- "/path/to/output/directory"
   if (!dir.exists(results_dir)) dir.create(results_dir, recursive = TRUE)
-  write_csv(valid_results, file.path(results_dir, "Gene_Burden_Analysis_Results.csv"))
+  readr::write_csv(valid_results, file.path(results_dir, "Gene_Burden_Analysis_Results.csv"))
   cat("Detailed results saved to:", file.path(results_dir, "Gene_Burden_Analysis_Results.csv"), "\n")
 
-  significant_genes_fdr <- valid_results[valid_results$Significant_FDR == TRUE, ]
-  significant_genes_raw <- valid_results[valid_results$P_Value < 0.05, ]
+  significant_genes_fdr <- valid_results[valid_results$Significant_FDR == TRUE, , drop = FALSE]
+  significant_genes_raw <- valid_results[valid_results$P_Value < 0.05, , drop = FALSE]
   if (nrow(significant_genes_fdr) > 0) {
-    write_csv(significant_genes_fdr, file.path(results_dir, "Significant_Genes_FDR_0.05.csv"))
+    readr::write_csv(significant_genes_fdr, file.path(results_dir, "Significant_Genes_FDR_0.05.csv"))
     cat("FDR-significant genes saved to:", file.path(results_dir, "Significant_Genes_FDR_0.05.csv"), "\n")
   }
   if (nrow(significant_genes_raw) > 0) {
-    write_csv(significant_genes_raw, file.path(results_dir, "Significant_Genes_Raw_P_0.05.csv"))
+    readr::write_csv(significant_genes_raw, file.path(results_dir, "Significant_Genes_Raw_P_0.05.csv"))
     cat("Raw p-value significant genes saved to:", file.path(results_dir, "Significant_Genes_Raw_P_0.05.csv"), "\n")
   }
 
@@ -316,23 +418,21 @@ main_burden_analysis <- function() {
   return(valid_results)
 }
 
-# Plotting: unified style and annotated volcano (label all FDR < 0.05)
-# ----------------- VOLCANO (modified: label only 6 specific genes) -----------------
+# -------------------------
+# Plotting: unified style and annotated volcano; saves vector + TIFF@1200
+# -------------------------
 create_summary_plots <- function(results, top_n = 17) {
-  # dependencies
-  if (!require(ggplot2, quietly = TRUE)) stop("ggplot2 required")
-  if (!require(ggrepel, quietly = TRUE)) { install.packages("ggrepel"); library(ggrepel) }
-  if (!require(scales, quietly = TRUE)) { install.packages("scales"); library(scales) }
+  if (!requireNamespace("ggplot2", quietly = TRUE)) stop("ggplot2 required")
+  if (!requireNamespace("ggrepel", quietly = TRUE)) install.packages("ggrepel")
+  if (!requireNamespace("scales", quietly = TRUE)) install.packages("scales")
 
   results_dir <- "/path/to/output/directory"
   if (!dir.exists(results_dir)) dir.create(results_dir, recursive = TRUE)
 
-  # sanity checks / prepare columns
   if (is.null(results) || nrow(results) == 0) {
     cat("[ERROR] 'results' is NULL or empty — nothing to plot.\n"); return(invisible(NULL))
   }
 
-  # ensure numeric types (same as original)
   results$Cases_Burden <- as.integer(results$Cases_Burden)
   if (!"P_Value_FDR" %in% colnames(results)) {
     if ("P_Value" %in% colnames(results)) {
@@ -343,9 +443,8 @@ create_summary_plots <- function(results, top_n = 17) {
     }
   }
 
-  # compute log2OR and -log10(FDR) safely (same as original)
   results <- results %>%
-    mutate(
+    dplyr::mutate(
       Odds_Ratio = as.numeric(Odds_Ratio),
       log2OR = ifelse(!is.na(Odds_Ratio) & Odds_Ratio > 0, log2(Odds_Ratio), NA_real_),
       neglog10FDR = -log10(pmax(P_Value_FDR, 1e-300)),
@@ -353,17 +452,16 @@ create_summary_plots <- function(results, top_n = 17) {
       Cases_Burden = ifelse(is.na(Cases_Burden), 0L, as.integer(Cases_Burden))
     )
 
-  # plotting theme and colors (unchanged)
-  base_size <- 14
-  theme_journal <- theme_bw(base_size = base_size) +
-    theme(
-      plot.title = element_text(face = "bold", size = base_size + 4, hjust = 0.5),
-      plot.subtitle = element_text(size = base_size + 1, hjust = 0.5),
-      axis.title = element_text(size = base_size + 1),
-      axis.text = element_text(size = base_size),
+  base_size <- 10
+  theme_journal <- ggplot2::theme_bw(base_size = base_size) +
+    ggplot2::theme(
+      text = ggplot2::element_text(family = font_family),
+      axis.title = ggplot2::element_text(size = base_size + 1),
+      axis.text = ggplot2::element_text(size = base_size),
       legend.position = "right",
-      panel.grid.major = element_line(color = "gray90"),
-      panel.grid.minor = element_blank()
+      panel.grid.major = ggplot2::element_line(color = "gray90"),
+      panel.grid.minor = ggplot2::element_blank(),
+      plot.margin = ggplot2::unit(c(5,5,5,5), "pt")
     )
 
   bar_fill <- "#9fd7f5"
@@ -371,111 +469,95 @@ create_summary_plots <- function(results, top_n = 17) {
   sig_color <- "#e15759"
   non_sig_color <- "gray60"
 
-  # ----------------- VOLCANO -----------------
+  # Volcano
   cat("=== Volcano: preparing data ===\n")
-  plot_data <- results %>% filter(!is.na(log2OR) & !is.na(neglog10FDR))
+  plot_data <- results %>% dplyr::filter(!is.na(log2OR) & !is.na(neglog10FDR))
   cat("[volcano] total plotted genes:", nrow(plot_data), "\n")
   if (nrow(plot_data) > 0) {
-    # ---- MODIFIED PART: choose exactly these 6 genes to label (if present) ----
     genes_to_label <- c("HLA-DQA1", "HLA-DRB1", "HLA-DQB1", "KMT2C", "HLA-DRB5", "PROM1")
-
-    # restrict label candidates to the intersection with plot_data
-    label_data <- plot_data %>%
-      filter(Gene %in% genes_to_label) %>%
-      arrange(desc(neglog10FDR))
-
+    label_data <- plot_data %>% dplyr::filter(Gene %in% genes_to_label) %>% dplyr::arrange(desc(neglog10FDR))
     cat("[volcano] requested label genes present:", nrow(label_data), "out of", length(genes_to_label), "\n")
 
-    # build volcano plot (same style as before)
-    p_volcano <- ggplot(plot_data, aes(x = log2OR, y = neglog10FDR)) +
-      geom_point(aes(color = SignificantFDR, size = pmax(Cases_Burden, 1)), alpha = 0.85) +
-      scale_color_manual(values = c("TRUE" = sig_color, "FALSE" = non_sig_color), guide = FALSE) +
-      scale_size_continuous(range = c(1.2, 4.5), guide = guide_legend(title = "Cases with burden")) +
-      geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black", alpha = 0.6) +
-      geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "black", alpha = 0.6) +
-      labs(title = "Gene Burden Analysis — Volcano Plot",
-           subtitle = paste0("Plotted genes: ", nrow(plot_data), "  |  FDR-significant: ", sum(plot_data$SignificantFDR, na.rm = TRUE)),
-           x = "log2(Odds Ratio)",
-           y = "-log10(FDR P-value)") +
+    p_volcano <- ggplot2::ggplot(plot_data, ggplot2::aes(x = log2OR, y = neglog10FDR)) +
+      ggplot2::geom_point(ggplot2::aes(color = SignificantFDR, size = pmax(Cases_Burden, 1)),
+                          alpha = 1, stroke = 0.2) +
+      ggplot2::scale_color_manual(values = c("TRUE" = sig_color, "FALSE" = non_sig_color), guide = FALSE) +
+      ggplot2::scale_size_continuous(range = c(1.5, 5), guide = ggplot2::guide_legend(title = "Cases with burden")) +
+      ggplot2::geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black", alpha = 0.6, size = 0.4) +
+      ggplot2::geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "black", alpha = 0.6, size = 0.4) +
+      ggplot2::xlab("log2(Odds Ratio)") + ggplot2::ylab("-log10(FDR P-value)") +
       theme_journal
 
-    # add only the selected labels (if any)
     if (!is.null(label_data) && nrow(label_data) > 0) {
       p_volcano <- p_volcano +
         ggrepel::geom_text_repel(
           data = label_data,
-          aes(label = Gene),
+          mapping = ggplot2::aes(label = Gene),
           size = 3.2,
           max.overlaps = 30,
-          box.padding = 1,
+          box.padding = 0.6,
           point.padding = 0.3,
-          segment.size = 0.45,
+          segment.size = 0.35,
           segment.color = "gray40",
-          arrow = grid::arrow(length = grid::unit(0.015, "npc"), type = "closed")
+          arrow = grid::arrow(length = grid::unit(0.02, "npc"), type = "closed")
         )
     }
 
-    ggsave(filename = file.path(results_dir, "Gene_Burden_Volcano_Plot_annotated.png"),
-           plot = p_volcano, width = 11, height = 8, dpi = 300)
-    cat("Saved:", file.path(results_dir, "Gene_Burden_Volcano_Plot_annotated.png"), "\n")
+    volcano_base <- file.path(results_dir, "Fig1_Gene_Burden_Volcano")
+    save_highres(p_volcano, volcano_base, width_cm = 17.6, height_cm = 12.0, save_vector = TRUE, tiff_res = 1200, family = font_family)
   } else {
     cat("[volcano] skipped: no valid OR/FDR to plot\n")
   }
 
-  # ----------------- TOP SIGNIFICANT BARPLOT (unchanged) -----------------
+  # Top barplot
   cat("=== Top genes barplot: preparing data ===\n")
-  plot_genes <- results %>% filter(SignificantFDR == TRUE)
+  plot_genes <- results %>% dplyr::filter(SignificantFDR == TRUE)
   if (nrow(plot_genes) == 0) {
-    plot_genes <- results %>% filter(P_Value < 0.05 & !is.na(P_Value))
+    plot_genes <- results %>% dplyr::filter(P_Value < 0.05 & !is.na(P_Value))
     cat("[barplot] no FDR-significant genes; falling back to raw p<0.05. selected:", nrow(plot_genes), "\n")
   } else {
     cat("[barplot] FDR-significant genes selected:", nrow(plot_genes), "\n")
   }
 
   if (nrow(plot_genes) > 0) {
-    plot_genes2 <- plot_genes %>% arrange(P_Value_FDR) %>% head(25) %>%
-      mutate(score = -log10(pmax(P_Value, 1e-300)))
-    p_bar <- ggplot(plot_genes2, aes(x = reorder(Gene, score), y = score)) +
-      geom_col(fill = bar_fill, color = bar_border, width = 0.75) +
-      coord_flip() +
-      labs(title = "Top Genes by Significance (raw/FDR)",
-           subtitle = paste0(nrow(plot_genes2), " top genes"),
-           x = "Gene", y = "-log10(Raw P-value)") +
+    plot_genes2 <- plot_genes %>% dplyr::arrange(P_Value_FDR) %>% head(25) %>%
+      dplyr::mutate(score = -log10(pmax(P_Value, 1e-300)))
+    p_bar <- ggplot2::ggplot(plot_genes2, ggplot2::aes(x = reorder(Gene, score), y = score)) +
+      ggplot2::geom_col(fill = bar_fill, color = bar_border, width = 0.75, size = 0.3) +
+      ggplot2::coord_flip() +
+      ggplot2::xlab("Gene") + ggplot2::ylab("-log10(Raw P-value)") +
       theme_journal +
-      theme(axis.text.y = element_text(size = base_size - 1))
+      ggplot2::theme(axis.text.y = ggplot2::element_text(size = base_size - 1))
 
-    height_needed <- max(6, 0.4 * nrow(plot_genes2))
-    ggsave(filename = file.path(results_dir, "Top_Significant_Genes_Styled.png"),
-           plot = p_bar, width = 12, height = height_needed, dpi = 300)
-    cat("Saved:", file.path(results_dir, "Top_Significant_Genes_Styled.png"), "\n")
+    n_rows <- nrow(plot_genes2)
+    height_cm_bar <- max(6, 0.6 * n_rows + 2)
+    bar_base <- file.path(results_dir, "Fig2_Top_Significant_Genes")
+    save_highres(p_bar, bar_base, width_cm = 8.8, height_cm = height_cm_bar, save_vector = TRUE, tiff_res = 1200, family = font_family)
   } else {
     cat("[barplot] skipped: no significant genes to show\n")
   }
 
-  # ----------------- DISTRIBUTION (unchanged) -----------------
+  # Distribution
   cat("=== Distribution: preparing data ===\n")
   if (!"Cases_Burden" %in% colnames(results)) {
     cat("[distribution] Cases_Burden not found -> skipping\n")
   } else {
-    p_dist <- ggplot(results, aes(x = Cases_Burden)) +
-      geom_histogram(bins = 30, fill = bar_fill, color = bar_border) +
-      labs(title = "Distribution of Gene Burden Counts (Cases)",
-           subtitle = paste("Across", nrow(results), "genes"),
-           x = "Number of cases with burden", y = "Number of genes") +
+    p_dist <- ggplot2::ggplot(results, ggplot2::aes(x = Cases_Burden)) +
+      ggplot2::geom_histogram(bins = 30, fill = bar_fill, color = bar_border, size = 0.3) +
+      ggplot2::xlab("Number of cases with burden") + ggplot2::ylab("Number of genes") +
       theme_journal
 
-    ggsave(filename = file.path(results_dir, "Burden_Distribution_Styled.png"),
-           plot = p_dist, width = 10, height = 6, dpi = 300)
-    cat("Saved:", file.path(results_dir, "Burden_Distribution_Styled.png"), "\n")
+    dist_base <- file.path(results_dir, "Fig3_Burden_Distribution")
+    save_highres(p_dist, dist_base, width_cm = 8.8, height_cm = 6.0, save_vector = TRUE, tiff_res = 1200, family = font_family)
   }
 
   cat("=== create_summary_plots finished ===\n")
   return(invisible(NULL))
 }
 
-# ============================
-# MAIN EXECUTION
-# ============================
+# -------------------------
+# Main execution
+# -------------------------
 results <- NULL
 tryCatch({
   cat("Starting analysis...\n")
@@ -488,7 +570,7 @@ tryCatch({
 }, finally = {
   if (exists("cl") && !is.null(cl)) {
     tryCatch({
-      stopCluster(cl)
+      parallel::stopCluster(cl)
       cat("Parallel processing cluster stopped.\n")
     }, error = function(e) {
       cat("Warning: Error stopping cluster:", e$message, "\n")
