@@ -1,48 +1,67 @@
 # Gene-Level Burden Analysis using Barnard's Test
 
-A high-performance R pipeline for conducting gene-level variant burden analysis in case-control genomic studies using Barnard's exact test. This tool provides more powerful statistical testing than Fisher's exact test, especially for unbalanced designs, while estimating control burden from population frequency data.
+A comprehensive R pipeline for performing gene-level burden analysis using Barnard's exact test with Fisher's test fallback, featuring high-quality publication-ready visualizations.
 
-## Features
+## Overview
 
-- **Barnard's Exact Test**: Uses the unconditional exact test (`DescTools::BarnardTest`) for superior statistical power compared to Fisher's exact test
-- **Population-Based Controls**: Estimates control burden from gnomAD/PopFreqMax frequencies using Hardy-Weinberg equilibrium
-- **Fractional Control Counts**: Maintains fractional expected control counts for accurate population modeling
-- **Robust Statistical Framework**: Automatic fallback to Fisher's test with Haldane continuity correction when Barnard's test fails
-- **High-Performance Computing**: Parallel processing with automatic core detection and load balancing
-- **Comprehensive Visualization**: Generates volcano plots, significance rankings, and burden distributions
-- **Flexible Gene Annotation**: Targeted labeling of specific genes of interest in plots
+This pipeline analyzes genetic variant burden at the gene level by:
+- Loading variant data from multiple samples
+- Calculating gene-level burden for each sample  
+- Estimating population-level burden frequencies using exact product method
+- Performing Barnard's exact tests for case-control comparison (with Fisher's test fallback)
+- Applying multiple testing corrections (Bonferroni and FDR)
+- Generating publication-quality plots with vector and high-resolution raster formats
+
+## Key Features
+
+- **Advanced Statistics**: Uses Barnard's exact test (more powerful than Fisher's test) with automatic Fisher's test fallback
+- **Parallel Processing**: Automatically detects available cores and parallelizes computations
+- **Robust Error Handling**: Comprehensive error checking and graceful failure recovery
+- **High-Quality Graphics**: Publication-ready plots in PDF/EPS vector formats plus TIFF@1200 DPI raster
+- **Font Management**: Automatic system font detection with showtext integration
+- **Haldane Continuity Correction**: Configurable continuity correction for odds ratio estimation
+- **Flexible Input**: Handles missing files and inconsistent data formats
 
 ## Requirements
 
 ### R Version
-- R ≥ 4.0.0
+- R >= 4.0.0
 
 ### Required R Packages
 ```r
-# Core packages (auto-installed if missing)
-- parallel      # Multi-core processing
-- data.table    # High-performance data manipulation
-- dplyr         # Data wrangling
-- readr         # Fast CSV I/O
-- ggplot2       # Advanced plotting
-- ggrepel       # Smart plot label positioning
-- scales        # Plot scaling utilities
-- DescTools     # Barnard's exact test implementation
+# Core packages (automatically installed if missing)
+required_packages <- c(
+  "parallel", "data.table", "dplyr", "readr",
+  "ggplot2", "ggrepel", "scales", "DescTools",
+  "showtext", "sysfonts"
+)
+
+# Optional but recommended for better graphics
+install.packages("ragg")  # Improved TIFF rendering
 ```
 
-## Statistical Methods
+### System Requirements
+- Multi-core CPU recommended for parallel processing
+- Sufficient RAM for loading all variant files simultaneously (typically 2-8 GB)
+- System fonts (Arial preferred, falls back to system defaults)
 
-### Barnard's Test vs Fisher's Test
-- **Barnard's Test**: Unconditional exact test that considers all possible tables with the same marginal totals, providing higher statistical power
-- **Fisher's Test**: Conditional exact test used as fallback with Haldane continuity correction (α = 0.5)
-- **Odds Ratio Estimation**: Uses Haldane-corrected odds ratios for stable estimates with small counts
+## Configuration
 
-### Population Control Modeling
-For genes with variants having allele frequencies AF₁, AF₂, ..., AFₙ:
-```
-Carrier probability per variant = min(2 × AFᵢ, 1)
-Gene burden probability = 1 - ∏(1 - carrier_probᵢ)
-Expected controls with burden = sample_size × burden_probability
+### Key Parameters
+Update these configuration variables at the top of the script:
+
+```r
+# Primary configuration
+RESULTS_DIR <- "/path/to/output/directory"           # Output directory
+BASE_PATH   <- "/path/to/results/directory"          # Sample data directory  
+SRR_FILE    <- "/path/to/srr_names.txt"             # Sample names file
+VERBOSE     <- TRUE                                  # Enable detailed logging
+
+# Statistical parameters
+HALDANE_PC  <- 0.6    # Haldane continuity correction for OR
+LOG2OR_MIN  <- 0      # Minimum log2(OR) for volcano plot
+LOG2OR_MAX  <- 15     # Maximum log2(OR) for volcano plot (clipped axis)
+TOP_LABEL_N <- 17     # API compatibility parameter
 ```
 
 ## Input Data Format
@@ -50,193 +69,184 @@ Expected controls with burden = sample_size × burden_probability
 ### Directory Structure
 ```
 /path/to/results/directory/
-├── SRR_ID_1/
+├── SRR_SAMPLE_1/
 │   └── ANNOTATION/
 │       └── Franklin_Results_Without_Benign_LikelyBenign_0.001.csv
-├── SRR_ID_2/
+├── SRR_SAMPLE_2/
 │   └── ANNOTATION/
 │       └── Franklin_Results_Without_Benign_LikelyBenign_0.001.csv
 └── ...
 ```
 
-### Required CSV Columns
-Each variant annotation file must contain:
-- **Gene Name** (or gene-like column that will be auto-detected)
-- **Variant** (auto-generated if missing: "var_1", "var_2", ...)
-- **gnomAD_AF** (gnomAD allele frequency, defaults to 0 if missing)
-- **PopFreqMax** (maximum population frequency, defaults to 0 if missing)
+### Required Files
+1. **SRR Names File**: Plain text file with sample identifiers (one per line)
+   ```
+   SRR_SAMPLE_1
+   SRR_SAMPLE_2
+   SRR_SAMPLE_3
+   ```
 
-### Sample List File
-Create a plain text file with one sample ID per line:
-```
-SRR_ID_1
-SRR_ID_2
-SRR_ID_3
-...
-```
-
-## Configuration
-
-### Key Parameters
-Edit these variables in the script header:
-
-```r
-# File paths (REQUIRED - update before running)
-RESULTS_DIR <- "/path/to/output/directory"     # Output directory
-BASE_PATH   <- "/path/to/results/directory"    # Input data directory  
-SRR_FILE    <- "/path/to/srr_names.txt"       # Sample list file
-
-# Statistical parameters
-HALDANE_PC  <- 0.5    # Haldane continuity correction constant
-LOG2OR_MIN  <- 0      # Minimum log2(OR) for volcano plot x-axis
-LOG2OR_MAX  <- 15     # Maximum log2(OR) for volcano plot x-axis
-
-# Visualization parameters
-TOP_LABEL_N <- 17     # Number of top FDR-significant genes to consider for labeling
-VERBOSE     <- TRUE   # Enable detailed logging
-```
-
-### Gene Labeling in Plots
-The volcano plot specifically labels these genes of interest (if present in results):
-```r
-genes_to_label <- c("HLA-DQA1", "HLA-DRB1", "HLA-DQB1", "KMT2C", "HLA-DRB5", "PROM1")
-```
-Modify this list to highlight your genes of interest.
+2. **Variant Files**: CSV files with columns:
+   - `Gene Name` (or similar): Gene symbol/identifier (required)
+   - `Variant`: Variant identifier (auto-generated if missing)
+   - `gnomAD_AF`: gnomAD allele frequency (optional, defaults to 0)
+   - `PopFreqMax`: Maximum population frequency (optional, defaults to 0)
 
 ## Usage
 
-### Basic Execution
-```bash
-Rscript burden_analysis_barnard.R
+### Standard Usage
+```r
+# Simply source the script - it runs automatically
+source("gene_burden_analysis_barnard.R")
+
+# Results and plots will be saved to RESULTS_DIR
 ```
 
-### Parallel Processing
-- Automatically detects CPU cores and uses up to 12 cores
-- Falls back gracefully to sequential processing if parallel setup fails
-- Exports all necessary functions and data to worker processes
-
-## Statistical Workflow
-
-1. **Data Loading**: Parallel reading and validation of variant annotation files
-2. **Burden Calculation**: Per-sample gene-level burden (≥1 qualifying variant per gene)
-3. **Population Modeling**: Hardy-Weinberg-based estimation of expected control burden
-4. **Statistical Testing**: 
-   - Primary: Barnard's exact test (z-pooled method)
-   - Fallback: Fisher's exact test with Haldane correction
-5. **Multiple Testing**: Bonferroni and FDR (Benjamini-Hochberg) corrections
-6. **Visualization**: Volcano plots, significance rankings, and distributions
+### Function-Level Usage
+```r
+# For custom workflows, comment out the main execution block and use:
+results <- main_burden_analysis()
+create_summary_plots(results, top_n = 17)
+```
 
 ## Output Files
 
-### CSV Results
-- **`Gene_Burden_Analysis_Results.csv`**: Complete results for all analyzed genes
-- **`Significant_Genes_FDR_0.05.csv`**: Genes passing FDR < 0.05 threshold
-- **`Significant_Genes_Raw_P_0.05.csv`**: Genes with nominal p < 0.05
+### Results Tables
+- `Gene_Burden_Analysis_Results.csv`: Complete results for all analyzed genes
+- `Significant_Genes_FDR_0.05.csv`: Genes significant after FDR correction (q < 0.05)
+- `Significant_Genes_Raw_P_0.05.csv`: Genes with nominal significance (p < 0.05)
 
-### Key Output Columns
-- `Gene`: Gene symbol/identifier
-- `Cases_Burden`: Number of cases with ≥1 variant in this gene
-- `Cases_No_Burden`: Number of cases without variants in this gene
-- `Controls_Burden`: Expected number of controls with burden (rounded for testing)
-- `Controls_No_Burden`: Expected number of controls without burden
-- `Controls_Burden_Fraction`: Exact fractional expected control burden
-- `P_Value`: Barnard's test p-value (or Fisher's fallback)
-- `Odds_Ratio`: Haldane-corrected odds ratio estimate
-- `CI_Lower`, `CI_Upper`: 95% confidence interval for odds ratio
-- `P_Value_FDR`: FDR-corrected p-value
-- `Significant_FDR`: Boolean flag for FDR significance
+### Visualizations
+All plots saved in multiple high-quality formats (PDF, EPS, TIFF@1200 DPI):
 
-### Visualization Outputs
-- **`Gene_Burden_Volcano_Plot_annotated.png`**: Volcano plot with targeted gene annotations
-- **`Top_Significant_Genes_Styled.png`**: Bar chart of most significant genes
-- **`Burden_Distribution_Styled.png`**: Histogram of case burden counts per gene
+1. **Fig1_Gene_Burden_Volcano**: 
+   - Volcano plot: log2(OR) vs -log10(FDR p-value)
+   - X-axis clipped to [0,15] for better visualization
+   - Highlights specific genes: HLA-DQA1, HLA-DRB1, HLA-DQB1, KMT2C, HLA-DRB5, PROM1
 
-## Performance Characteristics
+2. **Fig2_Top_Significant_Genes**: 
+   - Horizontal bar plot of top significant genes
+   - Ordered by statistical significance
 
-### Runtime Estimates
-- ~30-60 seconds per 1,000 genes (12-core system)
-- Barnard's test is computationally intensive but more powerful than alternatives
-- Automatic load balancing across available cores
+3. **Fig3_Burden_Distribution**: 
+   - Histogram showing distribution of burden counts across genes
 
-### Memory Requirements
-- Moderate memory usage: 4-8 GB RAM recommended
-- Efficient data.table operations for large datasets
-- Automatic garbage collection between test batches
+## Results Columns
 
-### Optimization Features
-- Intelligent chunking of statistical tests across cores
-- Early detection and handling of edge cases
-- Robust error handling with informative messages
+| Column | Description |
+|--------|-------------|
+| `Gene` | Gene symbol/identifier |
+| `Cases_Burden` | Number of cases with burden variants |
+| `Cases_No_Burden` | Number of cases without burden variants |
+| `Controls_Burden` | Estimated number of controls with burden (integer) |
+| `Controls_No_Burden` | Estimated number of controls without burden |
+| `Controls_Burden_Fraction` | Exact fractional control burden estimate |
+| `P_Value` | Raw Barnard's test p-value (Fisher's fallback if needed) |
+| `P_Value_Bonferroni` | Bonferroni-corrected p-value |
+| `P_Value_FDR` | FDR-corrected p-value (Benjamini-Hochberg) |
+| `Odds_Ratio` | Estimated odds ratio (with Haldane correction) |
+| `CI_Lower`, `CI_Upper` | 95% confidence interval bounds |
+| `Significant_Bonferroni` | Boolean: significant after Bonferroni correction |
+| `Significant_FDR` | Boolean: significant after FDR correction |
 
-## Advantages over Fisher's Test
+## Statistical Methodology
 
-1. **Higher Statistical Power**: Barnard's test provides better power, especially for unbalanced designs
-2. **No Conditioning**: Unconditional test doesn't assume fixed marginal totals
-3. **Better Type I Error Control**: More accurate p-values in small sample scenarios
-4. **Automatic Fallback**: Robust implementation with Fisher's test backup
+### Burden Calculation
+1. **Sample Burden**: Genes with ≥1 qualifying variant per sample
+2. **Population Burden**: Estimated using exact product method:
+   ```
+   For gene with variants [v1, v2, ..., vn]:
+   - Carrier probability per variant: min(2 × AF, 1)
+   - Gene burden probability: 1 - ∏(1 - carrier_prob_i)
+   - Expected burden count: sample_size × gene_burden_probability
+   ```
+
+### Statistical Testing
+- **Primary**: Barnard's exact test (z-pooled method via DescTools::BarnardTest)
+- **Fallback**: Fisher's exact test with Haldane continuity correction
+- **Odds Ratio**: Calculated with configurable Haldane correction (default: 0.6)
+
+### Multiple Testing Correction
+- **Bonferroni**: Controls family-wise error rate (FWER)
+- **FDR**: Controls false discovery rate using Benjamini-Hochberg procedure
+
+## Customization
+
+### Statistical Parameters
+```r
+HALDANE_PC  <- 0.6    # Continuity correction (0.5 = standard, 0.6 = default)
+LOG2OR_MAX  <- 15     # Maximum OR for volcano plot (higher values clipped)
+```
+
+### Parallel Processing
+```r
+# Modify core usage (default: auto-detect - 1, max 12)
+num_cores <- min(8, available_cores - 1)
+```
+
+### Gene Labeling
+```r
+# Modify genes highlighted in volcano plot
+genes_to_label <- c("HLA-DQA1", "HLA-DRB1", "HLA-DQB1", "KMT2C", "HLA-DRB5", "PROM1")
+```
+
+### Plot Styling
+```r
+base_size <- 10          # Base font size
+width_cm <- 17.6         # Plot width (cm)
+height_cm <- 12.0        # Plot height (cm)  
+tiff_res <- 1200         # TIFF resolution (DPI)
+```
+
+## Advantages of Barnard's Test
+
+- **More Powerful**: Often more sensitive than Fisher's exact test
+- **Exact**: Provides exact p-values for 2×2 contingency tables
+- **Unconditional**: Doesn't condition on marginal totals like Fisher's test
+- **Robust Fallback**: Automatically uses Fisher's test if Barnard's fails
+
+## Performance Notes
+
+- **Runtime**: 10-30 minutes for 50-100 samples with 10,000-20,000 variants
+- **Memory**: 2-8 GB RAM depending on dataset size
+- **CPU Scaling**: Benefits significantly from multi-core processing
+- **Barnard's Test**: Computationally intensive but more powerful than Fisher's
 
 ## Troubleshooting
 
 ### Common Issues
+1. **Memory Problems**: Reduce `num_cores` or process samples in batches
+2. **DescTools Installation**: Ensure DescTools package installed for Barnard's test
+3. **Long Runtime**: Barnard's test is slower than Fisher's - this is expected
+4. **Graphics Issues**: Install `ragg` package for optimal TIFF rendering
 
-**Missing DescTools Package**
-```
-Error: there is no package called 'DescTools'
-```
-Solution: The script auto-installs missing packages, but you can manually install:
-```r
-install.packages("DescTools", dependencies = TRUE)
-```
+### Error Messages
+- `"SRR names file not found"`: Check SRR_FILE path
+- `"No files to read"`: Verify BASE_PATH and file structure
+- `"No valid p-values"`: Check input data quality and variant counts
 
-**File Path Errors**
-```
-Error: SRR names file not found
-```
-Solution: Verify and update the three file path variables at the script top
+### Performance Optimization
+- Use solid-state storage for input files
+- Ensure adequate RAM (8GB+ recommended for large datasets)
+- Consider reducing dataset size for initial testing
 
-**Statistical Test Failures**
-```
-Warning: Falling back to Fisher's test
-```
-This is normal behavior when Barnard's test encounters numerical issues
+## Quality Control
 
-**Memory Limitations**
-```
-Error: cannot allocate vector of size X.X Gb
-```
-Solution: Reduce the number of parallel cores or process data in smaller batches
-
-### Debugging Mode
-The `VERBOSE <- TRUE` setting provides detailed progress information:
-- File reading status
-- Sample and gene counts
-- Parallel processing status  
-- Statistical test progress
-- Output file locations
-
-## Comparison with Other Methods
-
-| Method | Power | Speed | Exact | Unconditional |
-|--------|-------|--------|-------|---------------|
-| **Barnard's** | High | Slow | Yes | Yes |
-| Fisher's | Medium | Fast | Yes | No |
-| Chi-squared | Medium | Very Fast | No | Yes |
-| Bayesian | High | Very Slow | No | Yes |
-
-## Best Practices
-
-1. **Quality Control**: Ensure variant annotation quality before analysis
-2. **Population Matching**: Use population frequencies matching your study ancestry
-3. **Multiple Testing**: Always report FDR-corrected results for gene-level analyses
-4. **Effect Size**: Consider both statistical significance and biological relevance (OR magnitude)
-5. **Replication**: Validate significant findings in independent cohorts
+The pipeline includes extensive quality checks:
+- File existence verification
+- Data format validation
+- Missing value handling
+- Statistical test convergence monitoring
+- Automatic fallback mechanisms
 
 ## Citation
 
-If you use this pipeline in your research, please cite:
-- Barnard, G.A. (1947). Significance tests for 2×2 tables. *Biometrika*, 34(1/2), 123-138
-- The DescTools R package for Barnard's test implementation
-- Population frequency databases used (gnomAD, etc.)
+When using this pipeline, please cite:
+- Barnard's exact test implementation (DescTools package)
+- Population genetics methodology used
+- Any relevant statistical methods papers
+
+Include methodology details in your manuscript's methods section, particularly the use of Barnard's test and population burden estimation approach.
 
 ## License
 
