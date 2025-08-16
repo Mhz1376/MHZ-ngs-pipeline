@@ -38,10 +38,6 @@ Data can also be downloaded directly from this repository. **Important:** Please
 
 ## Requirements
 
-- [List key software requirements]
-- [Include version numbers]
-- [System requirements]
-
 See the `version` file in the data directory for complete software version specifications.
 
 ## Citation
