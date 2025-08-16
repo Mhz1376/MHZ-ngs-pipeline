@@ -20,10 +20,10 @@ Detailed documentation of each processing step is provided within the directory.
 
 ### `statistical_models/`
 Includes four comprehensive statistical models used in the analysis:
-- Model 1: [Brief description]
-- Model 2: [Brief description] 
-- Model 3: [Brief description]
-- Model 4: [Brief description]
+- Model 1: [Internal]
+- Model 2: [External: Fisher] 
+- Model 3: [External: Barnard]
+- Model 4: [External: Bayesian]
 
 Each model includes source code, documentation, and validation scripts.
 
