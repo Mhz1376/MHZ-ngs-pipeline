@@ -1,10 +1,10 @@
-# NGS Variant Calling Pipeline
+# NGS Variant Calling Pipeline (Enhanced Version)
 
-A comprehensive Next-Generation Sequencing (NGS) pipeline for processing SRA data through quality control, alignment, variant calling, and annotation with gene panel filtering.
+A comprehensive Next-Generation Sequencing (NGS) pipeline for processing SRA data through quality control, alignment, variant calling, and annotation with gene panel filtering. This enhanced version includes improved variant quality filtering with Genotype Quality (GQ) thresholds.
 
 ## Overview
 
-This pipeline processes SRA (Sequence Read Archive) files through a complete variant calling workflow, from raw sequencing data to filtered, annotated variants. It implements best practices for NGS data processing including GATK's recommended workflows for variant discovery.
+This pipeline processes SRA (Sequence Read Archive) files through a complete variant calling workflow, from raw sequencing data to filtered, annotated variants. It implements best practices for NGS data processing including GATK's recommended workflows for variant discovery, with enhanced quality filtering to improve variant confidence.
 
 ## Pipeline Workflow
 
@@ -41,7 +41,7 @@ This pipeline processes SRA (Sequence Read Archive) files through a complete var
 
 ### 7. Annotation and Filtering
 - **ANNOVAR**: Comprehensive variant annotation
-- **Custom filtering**: Gene panel-based filtering with quality thresholds
+- **Enhanced custom filtering**: Gene panel-based filtering with improved quality thresholds including GQ filtering
 - **PASS filtering**: Retain only variants that pass quality filters
 
 ## Prerequisites
@@ -110,9 +110,11 @@ Update the following paths in the script:
   - fastp: mean quality ≥20, minimum length 36bp
   - BBDuk: quality trimming at Q10
   - IlluQC: length ≥70bp, quality ≥20
-- **Variant filtering**:
-  - Heterozygous variants: ref count ≥8, alt count ≥8, alt frequency ≥25%
-  - Homozygous variants: alt count ≥8
+- **Enhanced variant filtering** (NEW):
+  - **Genotype Quality (GQ) threshold**: ≥30 for all variants
+  - **Heterozygous variants**: ref count ≥8, alt count ≥8, alt frequency ≥25%, GQ ≥30
+  - **Homozygous variants**: alt count ≥8, GQ ≥30
+  - Excludes mosaic variants (1/2 genotype)
   - Excludes Y chromosome variants and benign variants
   - PASS filter: Only variants with "PASS" in FILTER column retained
 
@@ -127,15 +129,29 @@ Update the following paths in the script:
 - Raw variants (var.vcf.gz)
 - Quality score recalibrated variants (recal_snp_recal_indel.vcf.gz)
 - Annotated variants (ANNOVAR output files)
-- Filtered variants:
+- Enhanced filtered variants:
   - `matched_pgl.vcf`: Gene panel matched variants
-  - `AD_GT_matched_pgl.vcf`: Quality filtered variants
-  - `filtered_without_Y_and_benign_AD_GT_matched_pgl.vcf`: Clinical filtered variants
-  - `passed_filtered_without_Y_and_benign_AD_GT_matched_pgl.vcf`: Final filtered variants
+  - `AD_GT_GQ_matched_pgl.vcf`: Quality filtered variants with GQ threshold (NEW)
+  - `filtered_without_Y_and_benign_AD_GT_GQ_matched_pgl.vcf`: Clinical filtered variants (NEW)
+  - `passed_filtered_without_Y_and_benign_AD_GT_GQ_matched_pgl.vcf`: Final filtered variants (NEW)
 
 ### Log Files
 - Process logs: `{SRR}_process.log`
 - Error logs: `{SRR}_process.err`
+
+## Key Enhancements in This Version
+
+### Improved Variant Quality Filtering
+- **GQ Filtering**: Added Genotype Quality (GQ) threshold of ≥30 for all variants to improve confidence in genotype calls
+- **Enhanced Quality Control**: More stringent filtering criteria to reduce false positive calls
+- **Better File Naming**: Updated output file names to reflect the additional GQ filtering step
+
+### Quality Metrics Integration
+The pipeline now considers multiple quality metrics simultaneously:
+1. **Allelic Depth (AD)**: Ensures sufficient read support
+2. **Depth of Coverage (DP)**: Validates overall coverage
+3. **Genotype Quality (GQ)**: Assesses confidence in genotype assignment
+4. **Allele Frequency**: Maintains minimum variant allele frequency thresholds
 
 ## Pipeline Features
 
@@ -143,7 +159,7 @@ Update the following paths in the script:
 - **Comprehensive QC**: Multiple quality control steps with detailed reporting
 - **Best practices**: Implements GATK best practices for variant calling
 - **Gene panel filtering**: Focuses analysis on clinically relevant genes
-- **Quality-based filtering**: Applies stringent quality thresholds
+- **Enhanced quality-based filtering**: Applies stringent quality thresholds including GQ filtering
 - **Automated cleanup**: Removes intermediate files to save disk space
 - **Detailed logging**: Comprehensive logging for troubleshooting
 
@@ -161,6 +177,12 @@ Update the following paths in the script:
 - Verify reference file paths and formats
 - Confirm adequate disk space for processing
 - Monitor system resources during execution
+- Verify that VCF files contain GQ field in FORMAT column for proper filtering
+
+## Version History
+
+- **Enhanced Version**: Added GQ filtering (≥30) for improved variant quality assessment
+- **Original Version**: Basic AD, GT, and DP filtering
 
 ## Citation
 
