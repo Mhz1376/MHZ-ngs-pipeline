@@ -210,9 +210,9 @@ process_srr() {
 
 	# Define output file names based on the current working directory
 	matched_pgl="matched_pgl.vcf"
-	AD_GT_matched_pgl="AD_GT_matched_pgl.vcf"
-	filtered_without_Y_and_benign_AD_GT_matched_pgl="filtered_without_Y_and_benign_AD_GT_matched_pgl.vcf"
-	passed_filtered_without_Y_and_benign_AD_GT_matched_pgl="passed_filtered_without_Y_and_benign_AD_GT_matched_pgl.vcf"
+	AD_GT_GQ_matched_pgl="AD_GT_GQ_matched_pgl.vcf"
+	filtered_without_Y_and_benign_AD_GT_GQ_matched_pgl="filtered_without_Y_and_benign_AD_GT_GQ_matched_pgl.vcf"
+	passed_filtered_without_Y_and_benign_AD_GT_GQ_matched_pgl="passed_filtered_without_Y_and_benign_AD_GT_GQ_matched_pgl.vcf"
 
 	echo "Processing files in the current directory..."
 
@@ -268,29 +268,36 @@ process_srr() {
 
 	# Step 2: Process the output from step 1 to filter based on AD and GT values
 	if [[ -f "$matched_pgl" ]]; then
-	  echo "Filtering based on AD and GT from $matched_pgl to $AD_GT_matched_pgl..."
+	  echo "Filtering based on AD and GT from $matched_pgl to $AD_GT_GQ_matched_pgl..."
 
 	  awk '
 	  /^#/ { print; next }
 	  {
-	  # 1) Find indices of GT, AD, and DP in the FORMAT field··
+	  # 1) Find indices of GT, AD, DP, and GQ in the FORMAT field··
 	  split($9, fmt, ":")··
-	  gtIx=adIx=dpIx=0··
+	  gtIx=adIx=dpIx=gqIx=0··
 	  for (i in fmt) {  
 		  if (fmt[i]=="GT") gtIx=i  
 		  if (fmt[i]=="AD") adIx=i  
-		  if (fmt[i]=="DP") dpIx=i  
+		  if (fmt[i]=="DP") dpIx=i
+		  if (fmt[i]=="GQ") gqIx=i  
 	  }  
 	  # 2) If all necessary fields are present, parse the SAMPLE column··
-	  if (gtIx && adIx && dpIx) {  
+	  if (gtIx && adIx && dpIx && gqIx) {  
 		  split($10, vals, ":")  
 		  genotype = vals[gtIx]  
 		  split(vals[adIx], ad, ",")  
 		  refCount = ad[1]  
 		  altCount = ad[2]  
-		  dpValue  = vals[dpIx]  
+		  dpValue  = vals[dpIx]
+		  gqValue = vals[gqIx]  
 
-		  # 3) Apply filtering by category:··
+		  # 3) Apply GQ filter first (must be >= 30)
+          if (gqValue < 30) {
+            next
+          }
+
+		  # 4) Apply filtering by category:··
 		  # a) Mosaic variants (genotype 1/2) → skip··
 		  if (genotype == "1/2") {  
 		  next  
@@ -301,7 +308,7 @@ process_srr() {
 			  print  
 		  }  
 		  }
-		  # c) Homozygous alternate variants (1/1) → altCount ≥ 8··
+		  # c) Homozygous alternate variants (1/1) → altCount ≥ 8, GQ ≥ 30
 		  else if (genotype == "1/1") {  
 		  if (altCount >= 8) {  
 		  	  print  
@@ -309,37 +316,37 @@ process_srr() {
 		  }
 	  }  
 	  }
-	  ' "$matched_pgl" > "$AD_GT_matched_pgl"
+	  ' "$matched_pgl" > "$AD_GT_GQ_matched_pgl"
 
 
 
-	  echo "Filtered: $matched_pgl -> $AD_GT_matched_pgl"
+	  echo "Filtered: $matched_pgl -> $AD_GT_GQ_matched_pgl"
 	else
 	  echo "File not found: $matched_pgl"
 	fi
 
 	# Step 3: Filter based on Y chromosome and benign status
-	if [[ -f "$AD_GT_matched_pgl" ]]; then
-	  echo "Filtering based on chromosome and clinical significance from $AD_GT_matched_pgl to $filtered_without_Y_and_benign_AD_GT_matched_pgl..."
+	if [[ -f "$AD_GT_GQ_matched_pgl" ]]; then
+	  echo "Filtering based on chromosome and clinical significance from $AD_GT_GQ_matched_pgl to $filtered_without_Y_and_benign_AD_GT_GQ_matched_pgl..."
 
 	  awk '
 		BEGIN { FS="\t"; OFS="\t" }
 		/^#/ { print; next }
 		$1 != "Y" && !($8 ~ /CLNSIG=Benign(;|$)/) { print }
-	  ' "$AD_GT_matched_pgl" > "$filtered_without_Y_and_benign_AD_GT_matched_pgl"
+	  ' "$AD_GT_GQ_matched_pgl" > "$filtered_without_Y_and_benign_AD_GT_GQ_matched_pgl"
 
-	  echo "Final filtering done: $filtered_without_Y_and_benign_AD_GT_matched_pgl"
+	  echo "Final filtering done: $filtered_without_Y_and_benign_AD_GT_GQ_matched_pgl"
 	else
-	  echo "Input file $AD_GT_matched_pgl does not exist."
+	  echo "Input file $AD_GT_GQ_matched_pgl does not exist."
 	fi
 
 	# Step 4: Filter for variants with "PASS" in the FILTER column
     echo "Running final PASS filter..."
 
     # Keep all header lines and only variants with FILTER field equal to PASS
-    awk '$7=="PASS" || /^#/' "$filtered_without_Y_and_benign_AD_GT_matched_pgl" > "$passed_filtered_without_Y_and_benign_AD_GT_matched_pgl"
+    awk '$7=="PASS" || /^#/' "$filtered_without_Y_and_benign_AD_GT_GQ_matched_pgl" > "$passed_filtered_without_Y_and_benign_AD_GT_GQ_matched_pgl"
 
-    echo "PASS-filtered VCF saved as $passed_filtered_without_Y_and_benign_AD_GT_matched_pgl"
+    echo "PASS-filtered VCF saved as $passed_filtered_without_Y_and_benign_AD_GT_GQ_matched_pgl"
 
 
     echo "Finished processing $SRR at $(date)"
