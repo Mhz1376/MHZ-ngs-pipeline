@@ -218,25 +218,12 @@ pip install --upgrade scipy
 - Invalid AC/AN values
 - Zero allele numbers
 
-## Citation
-
-If you use this pipeline in your research, please cite:
-
-```
-[Your citation information here]
-```
-
 ## License
 
-[Choose your license - MIT, GPL, etc.]
+-This pipeline is provided as-is for research purposes. Please ensure compliance with individual tool licenses.
 
-## Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request.
-
-## Contact
-
-[Your contact information]
+## Support
+-For questions or issues with this pipeline, please check the documentation of individual tools or create an issue in this repository.
 
 ## Acknowledgments
 
